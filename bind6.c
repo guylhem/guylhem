@@ -1,6 +1,6 @@
 /*
    Copyright (C) 2000 Daniel Ryde <daniel@ryde.net>  http://www.ryde.net/
-   Copyright (C) 2011 Guylhem Aznar
+   Copyright (C) 2011 Guylhem Aznar http://guylhem.org
 
    This library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
