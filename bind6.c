@@ -1,6 +1,6 @@
 /*
+   Copyright (C) 2012 Guylhem Aznar <code@guylhem> http://www.guylhem.net/
    Copyright (C) 2000 Daniel Ryde <daniel@ryde.net>  http://www.ryde.net/
-   Copyright (C) 2011 Guylhem Aznar http://guylhem.org
 
    This library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
@@ -14,21 +14,19 @@
 
    LD_PRELOAD library to make bind and connect to use a virtual
    IP address as localaddress. Specified via the enviroment
-   variable BIND_ADDR.
+   variable BIND_IPVx.
 
    Compile on Linux with:
-   gcc -nostartfiles -fpic -shared bind6.c -o bind6.so -ldl -D_GNU_SOURCE
+   	gcc -nostartfiles -fpic -shared bind6.c -o bind6.so -ldl -D_GNU_SOURCE
 
-   Example in bash to make inetd only listen to the localhost
-   lo interface, thus disabling remote connections and only
-   enable to/from localhost:
+   Example to make inetd only listen to the 127.0.0.1, thus disabling remote
+   connections and only enable to/from localhost:
+   	BIND_IPV4="127.0.0.1" LD_PRELOAD=./bind.so /sbin/inetd
+   With a IPV4 like IPV6:
+   	BIND_IPV6="::ffff:127.0.0.1" LD_PRELOAD=./bind.so /sbin/inetd
 
-   BIND_ADDR="127.0.0.1" LD_PRELOAD=./bind.so /sbin/inetd
-
-   IPv6 adaptation based on:
-    http://uw714doc.sco.com/en/SDK_netapi/sockC.TheIPv6sockaddrstructure.html
-    http://www.opengroup.org/onlinepubs/000095399/basedefs/netinet/in.h.html
-
+   To restrict inetd to a given IPV6:
+   	BIND_IPV6="2001:db8::1" LD_PRELOAD=./bind.so /sbin/inetd
 */
 
 #include <stdio.h>
@@ -48,7 +46,8 @@ struct sockaddr_in local_sockaddr_in[] = { 0 };
 char *bind_addr6_env;
 struct sockaddr_in6 local_sockaddr_in6[] = { 0 };
 
-#define in6addr_any_saddr in6addr_any
+char addressBuffer[INET6_ADDRSTRLEN];
+#define in6addr_any_saddr IN6ADDR_ANY_INIT;
 
 void
 _init (void)
@@ -56,28 +55,32 @@ _init (void)
     const char *err;
     void    *uclibc;
 
-    uclibc = dlopen("/lib/libc.so", RTLD_LOCAL | RTLD_LAZY);
-    // glibc ?
+    uclibc = dlopen("/lib/libc.so.0", RTLD_LOCAL | RTLD_LAZY);
+    // glibc can do with
     // real_bind = dlsym (RTLD_NEXT, "bind");
     real_bind = dlsym (uclibc , "bind");
     if ((err = dlerror ()) != NULL) {
         fprintf (stderr, "dlsym (bind): %s\n", err);
     }
 
-    if (bind_addr_env = getenv ("BIND_IP")) {
+    if (bind_addr_env = getenv ("BIND_IPV4")) {
         local_sockaddr_in->sin_family = AF_INET;
         local_sockaddr_in->sin_port = htons (0);
     // old IPV4:
         // local_sockaddr_in->sin_addr.s_addr = inet_addr (bind_addr_env);
     // new IPV4:
         inet_pton(AF_INET, bind_addr_env, &local_sockaddr_in->sin_addr);
+    } else {
+	printf ("Please export BIND_IPV4\n");
     }
 
-    if (bind_addr6_env = getenv ("BIND_IP6")) {
+    if (bind_addr6_env = getenv ("BIND_IPV6")) {
         local_sockaddr_in6->sin6_family = AF_INET6;
         local_sockaddr_in6->sin6_port = htons (0);
         local_sockaddr_in6->sin6_flowinfo = 0;
         inet_pton(AF_INET6, bind_addr6_env, &local_sockaddr_in6->sin6_addr);
+    } else {
+	printf ("Please export BIND_IPV6\n");
     }
 }
 
@@ -100,14 +103,15 @@ int bind (int fd, const struct sockaddr *sk, socklen_t sl)
         }
     }
     else if (lsk_in6->sin6_family == AF_INET6) {
-        inet_ntop(AF_INET6, &lsk_in6->sin6_addr, addr_buf, sizeof(lsk_in6->sin6_addr));
-        printf("bind(): AF_INET6 fd=%d [%s]:%d\n", fd, addr_buf, ntohs (lsk_in6->sin6_port));
-        if ((bind_addr6_env) && (memcmp(&lsk_in6->sin6_addr, &in6addr_any, sizeof(in6addr_any)) == 0)) {
-            lsk_in6->sin6_addr = local_sockaddr_in6->sin6_addr;
-        // debug
-            inet_ntop(AF_INET6, &lsk_in6->sin6_addr, addr_buf, sizeof(lsk_in6->sin6_addr));
-            printf("BIND(): AF_INET6 fd=%d [%s]:%d\n", fd, addr_buf, ntohs (lsk_in6->sin6_port));
-        }
+	void *p = &lsk_in6->sin6_addr.s6_addr;
+
+	if ((bind_addr6_env) {
+		inet_ntop(AF_INET6, p, addressBuffer, INET6_ADDRSTRLEN);
+//		printf("bind(): wanted %s\n", addressBuffer);
+		int err = inet_pton(sk->sa_family, bind_addr6_env, p);
+	if (err == 1)
+//		printf("bind(): got  %s\n", bind_addr6_env);
+	}
 
 //struct in6_addr s6 = { };
 //if (!IN6_IS_ADDR_UNSPECIFIED(&s6))
@@ -117,8 +121,6 @@ int bind (int fd, const struct sockaddr *sk, socklen_t sl)
     else {
         printf("bind(): af=%d fd=%d\n", fd, lsk_in->sin_family);
     }
-
-
 
     return real_bind (fd, sk, sl);
 }
